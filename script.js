@@ -19,13 +19,55 @@ const state = {
     viaje: null,
     seats: [],
     occupied: [],
+    occupiedInfo: {},  // Info de quién ocupó cada asiento
     client: null,
     boleto: null
 };
 
 // ═══════════════════════════════════════════════════════════════════════════════
+// PERSISTENCIA DE SESIÓN - LOCAL STORAGE
+// ═══════════════════════════════════════════════════════════════════════════════
+const SESSION_KEY = 'surubi_google_token';
+const SESSION_EXPIRY_KEY = 'surubi_token_expiry';
+
+function saveToken(token) {
+    try {
+        localStorage.setItem(SESSION_KEY, JSON.stringify(token));
+        const expiry = Date.now() + (3600 * 1000); // 1 hora
+        localStorage.setItem(SESSION_EXPIRY_KEY, expiry.toString());
+        console.log('✅ Token guardado');
+    } catch (e) {
+        console.error('Error guardando token:', e);
+    }
+}
+
+function getSavedToken() {
+    try {
+        const tokenStr = localStorage.getItem(SESSION_KEY);
+        const expiry = localStorage.getItem(SESSION_EXPIRY_KEY);
+        if (!tokenStr || !expiry) return null;
+        if (Date.now() > parseInt(expiry)) {
+            clearSavedToken();
+            return null;
+        }
+        return JSON.parse(tokenStr);
+    } catch (e) {
+        return null;
+    }
+}
+
+function clearSavedToken() {
+    localStorage.removeItem(SESSION_KEY);
+    localStorage.removeItem(SESSION_EXPIRY_KEY);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
 // INICIALIZACIÓN DE GOOGLE API
 // ═══════════════════════════════════════════════════════════════════════════════
+let tokenClient;
+let gapiInited = false;
+let gisInited = false;
+
 function gapiLoaded() {
     gapi.load('client', initializeGapiClient);
 }
@@ -37,7 +79,8 @@ async function initializeGapiClient() {
             discoveryDocs: [CONFIG.DISCOVERY_DOC],
         });
         console.log('✅ GAPI client inicializado');
-        maybeEnableButtons();
+        gapiInited = true;
+        checkSavedSession();
     } catch (error) {
         console.error('❌ Error inicializando GAPI:', error);
         showAlert('error', 'Error de conexión', 'No se pudo conectar con Google');
@@ -51,61 +94,111 @@ function gisLoaded() {
         callback: handleAuthCallback,
     });
     console.log('✅ GIS client inicializado');
-    maybeEnableButtons();
+    gisInited = true;
+    checkSavedSession();
 }
 
-let tokenClient;
-let gapiInited = false;
-let gisInited = false;
-
-function maybeEnableButtons() {
-    gapiInited = typeof gapi !== 'undefined' && gapi.client;
-    gisInited = typeof tokenClient !== 'undefined';
+function checkSavedSession() {
+    if (!gapiInited || !gisInited) return;
     
-    if (gapiInited && gisInited) {
-        // Intentar autenticación automática
-        handleAuthClick();
+    const savedToken = getSavedToken();
+    if (savedToken) {
+        console.log('🔄 Restaurando sesión guardada...');
+        gapi.client.setToken(savedToken);
+        testTokenValidity();
+    } else {
+        updateConnectionStatus(false);
+    }
+}
+
+async function testTokenValidity() {
+    try {
+        await gapi.client.sheets.spreadsheets.get({
+            spreadsheetId: CONFIG.GOOGLE_SHEET_ID,
+            fields: 'spreadsheetId'
+        });
+        console.log('✅ Sesión restaurada correctamente');
+        state.isSignedIn = true;
+        updateConnectionStatus(true);
+        showAlert('success', 'Sesión activa', 'Bienvenido de vuelta');
+        loadAllData();
+    } catch (error) {
+        console.log('⚠️ Token inválido, requiere nuevo login');
+        clearSavedToken();
+        updateConnectionStatus(false);
     }
 }
 
 function handleAuthClick() {
     if (!tokenClient) {
-        showAlert('error', 'Error', 'Cliente de autenticación no inicializado');
+        showAlert('error', 'Error', 'Cliente no inicializado');
         return;
     }
-    
-    if (gapi.client.getToken() === null) {
-        tokenClient.requestAccessToken({ prompt: 'consent' });
-    } else {
-        tokenClient.requestAccessToken({ prompt: '' });
-    }
+    tokenClient.requestAccessToken({ prompt: 'consent' });
 }
 
 function handleAuthCallback(response) {
     if (response.error) {
         console.error('❌ Error de autenticación:', response.error);
-        showAlert('error', 'Error de autenticación', 'No se pudo iniciar sesión');
+        showAlert('error', 'Error', 'No se pudo iniciar sesión');
         return;
     }
+    
+    const token = gapi.client.getToken();
+    saveToken(token);
     
     state.isSignedIn = true;
     updateConnectionStatus(true);
     showAlert('success', 'Conectado', 'Sistema conectado a Google Sheets');
-    
-    // Cargar todos los datos
     loadAllData();
+}
+
+function handleSignOut() {
+    const token = gapi.client.getToken();
+    if (token !== null) {
+        google.accounts.oauth2.revoke(token.access_token, () => {
+            console.log('✅ Token revocado');
+        });
+        gapi.client.setToken(null);
+    }
+    
+    clearSavedToken();
+    state.isSignedIn = false;
+    state.viajes = [];
+    state.clientes = [];
+    state.ventas = [];
+    updateConnectionStatus(false);
+    clearForm();
+    
+    const tripList = document.getElementById('tripList');
+    if (tripList) {
+        tripList.innerHTML = '<p style="text-align:center;color:var(--text-muted);padding:1rem;">Sesión cerrada. Click en "Iniciar Sesión"</p>';
+    }
+    
+    showAlert('warning', 'Sesión cerrada', 'Has cerrado sesión');
 }
 
 function updateConnectionStatus(connected) {
     const badge = document.querySelector('.badge');
-    const statusText = badge.querySelector('span');
+    const statusText = document.querySelector('.status-text');
+    const authBtn = document.getElementById('authBtn');
     
     if (connected) {
-        badge.classList.add('online');
-        statusText.textContent = 'Conectado';
+        if (badge) badge.classList.add('online');
+        if (statusText) statusText.textContent = 'Conectado';
+        if (authBtn) {
+            authBtn.textContent = '🚪 Cerrar Sesión';
+            authBtn.onclick = handleSignOut;
+            authBtn.classList.add('logout');
+        }
     } else {
-        badge.classList.remove('online');
-        statusText.textContent = 'Desconectado';
+        if (badge) badge.classList.remove('online');
+        if (statusText) statusText.textContent = 'Desconectado';
+        if (authBtn) {
+            authBtn.textContent = '🔑 Iniciar Sesión';
+            authBtn.onclick = handleAuthClick;
+            authBtn.classList.remove('logout');
+        }
     }
 }
 
@@ -123,15 +216,13 @@ async function readSheet(sheetName) {
         if (values.length === 0) return [];
         
         const headers = values[0];
-        const data = values.slice(1).map(row => {
+        return values.slice(1).map(row => {
             const obj = {};
             headers.forEach((header, index) => {
                 obj[header] = row[index] || '';
             });
             return obj;
         });
-        
-        return data;
     } catch (error) {
         console.error(`❌ Error leyendo ${sheetName}:`, error);
         return [];
@@ -161,7 +252,6 @@ async function loadAllData() {
     showAlert('warning', 'Cargando...', 'Obteniendo datos del sistema');
     
     try {
-        // Cargar todas las hojas en paralelo
         const [config, vehiculos, rutas, programacion, ventas, clientes] = await Promise.all([
             readSheet(CONFIG.SHEETS.CONFIG),
             readSheet(CONFIG.SHEETS.VEHICULOS),
@@ -171,7 +261,6 @@ async function loadAllData() {
             readSheet(CONFIG.SHEETS.CLIENTES)
         ]);
         
-        // Procesar configuración de empresa
         state.empresa = {};
         config.forEach(row => {
             if (row.clave && row.valor) {
@@ -185,11 +274,8 @@ async function loadAllData() {
         state.ventas = ventas;
         state.clientes = clientes;
         
-        // Procesar viajes (unir programación con rutas y vehículos)
         processViajes();
-        
         showAlert('success', 'Datos cargados', `${state.viajes.length} viajes disponibles`);
-        
     } catch (error) {
         console.error('❌ Error cargando datos:', error);
         showAlert('error', 'Error', 'No se pudieron cargar los datos');
@@ -218,7 +304,6 @@ function processViajes() {
             };
         })
         .filter(v => {
-            // Filtrar viajes de hoy o futuros
             const viajeDate = new Date(v.fecha + 'T00:00:00');
             const today = new Date();
             today.setHours(0, 0, 0, 0);
@@ -262,26 +347,37 @@ function renderViajes() {
 // SELECCIÓN DE VIAJE
 // ═══════════════════════════════════════════════════════════════════════════════
 function selectViaje(id) {
-    // Quitar selección anterior
     document.querySelectorAll('.trip-card').forEach(c => c.classList.remove('selected'));
     
-    // Seleccionar nuevo
     const card = document.querySelector(`[data-id="${id}"]`);
     if (card) card.classList.add('selected');
     
-    // Actualizar estado
     state.viaje = state.viajes.find(v => v.id === id);
     state.seats = [];
     
-    // Obtener asientos ocupados de las ventas
-    state.occupied = state.ventas
-        .filter(v => v.id_viaje === id && v.estado !== 'CANCELADO')
+    // Obtener ventas de este viaje
+    const ventasViaje = state.ventas.filter(v => v.id_viaje === id && v.estado !== 'CANCELADO');
+    
+    state.occupied = ventasViaje
         .map(v => parseInt(v.asiento))
         .filter(n => !isNaN(n));
     
+    // Guardar info de quién ocupó cada asiento
+    state.occupiedInfo = {};
+    ventasViaje.forEach(venta => {
+        const asiento = parseInt(venta.asiento);
+        if (!isNaN(asiento)) {
+            const cliente = state.clientes.find(c => c.nit === venta.nit_cliente);
+            state.occupiedInfo[asiento] = {
+                nombre: cliente ? cliente.nombre : 'Cliente',
+                nit: venta.nit_cliente || 'N/A',
+                boleto: venta.id_boleto || ''
+            };
+        }
+    });
+    
     updateSeats();
     updateSummary();
-    
     showAlert('success', 'Viaje seleccionado', `${state.viaje.origen} → ${state.viaje.destino}`);
 }
 
@@ -293,12 +389,8 @@ function updateSeats() {
         const seat = document.querySelector(`[data-seat="${i}"]`);
         if (seat) {
             seat.classList.remove('selected', 'occupied');
-            if (state.occupied.includes(i)) {
-                seat.classList.add('occupied');
-            }
-            if (state.seats.includes(i)) {
-                seat.classList.add('selected');
-            }
+            if (state.occupied.includes(i)) seat.classList.add('occupied');
+            if (state.seats.includes(i)) seat.classList.add('selected');
         }
     }
     updateSelectedDisplay();
@@ -310,8 +402,14 @@ function toggleSeat(n) {
         return;
     }
     
+    // Si está ocupado, mostrar info del ocupante
     if (state.occupied.includes(n)) {
-        showAlert('error', 'Ocupado', `El asiento ${n} no está disponible`);
+        const info = state.occupiedInfo[n];
+        if (info) {
+            showOccupantInfo(n, info);
+        } else {
+            showAlert('error', 'Ocupado', `El asiento ${n} no está disponible`);
+        }
         return;
     }
     
@@ -323,9 +421,55 @@ function toggleSeat(n) {
     }
     
     state.seats.sort((a, b) => a - b);
-    
     updateSeats();
     updateSummary();
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// MOSTRAR INFO DEL OCUPANTE
+// ═══════════════════════════════════════════════════════════════════════════════
+function showOccupantInfo(asiento, info) {
+    const existingModal = document.getElementById('occupantModal');
+    if (existingModal) existingModal.remove();
+    
+    const modal = document.createElement('div');
+    modal.id = 'occupantModal';
+    modal.className = 'occupant-modal';
+    modal.innerHTML = `
+        <div class="occupant-content">
+            <div class="occupant-header">
+                <span class="occupant-icon">💺</span>
+                <h3>Asiento ${asiento} - Ocupado</h3>
+            </div>
+            <div class="occupant-body">
+                <div class="occupant-row">
+                    <span class="occupant-label">👤 Pasajero:</span>
+                    <span class="occupant-value">${info.nombre}</span>
+                </div>
+                <div class="occupant-row">
+                    <span class="occupant-label">🪪 NIT/CI:</span>
+                    <span class="occupant-value">${info.nit}</span>
+                </div>
+                ${info.boleto ? `
+                <div class="occupant-row">
+                    <span class="occupant-label">🎫 Boleto:</span>
+                    <span class="occupant-value">${info.boleto}</span>
+                </div>
+                ` : ''}
+            </div>
+            <button class="occupant-close" onclick="closeOccupantModal()">Cerrar</button>
+        </div>
+    `;
+    
+    document.body.appendChild(modal);
+    modal.addEventListener('click', (e) => {
+        if (e.target === modal) closeOccupantModal();
+    });
+}
+
+function closeOccupantModal() {
+    const modal = document.getElementById('occupantModal');
+    if (modal) modal.remove();
 }
 
 function updateSelectedDisplay() {
@@ -343,7 +487,7 @@ function updateSelectedDisplay() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// BÚSQUEDA DE CLIENTE EN GOOGLE SHEETS
+// BÚSQUEDA DE CLIENTE
 // ═══════════════════════════════════════════════════════════════════════════════
 function searchClient() {
     const nitInput = document.getElementById('nitInput');
@@ -354,20 +498,16 @@ function searchClient() {
         return;
     }
     
-    // Buscar en los clientes cargados
     const client = state.clientes.find(c => c.nit === nit);
     
     if (client) {
         state.client = client;
-        
         document.getElementById('clientName').textContent = client.nombre;
         document.getElementById('clientInfo').textContent = `Tel: ${client.telefono || '-'} | ${client.email || '-'}`;
         document.getElementById('clientBox').classList.add('show');
-        
         document.getElementById('nameInput').value = client.nombre || '';
         document.getElementById('phoneInput').value = client.telefono || '';
         document.getElementById('emailInput').value = client.email || '';
-        
         showAlert('success', 'Cliente encontrado', client.nombre);
     } else {
         state.client = null;
@@ -396,9 +536,7 @@ function updateSummary() {
     
     const sumSeats = document.getElementById('sumSeats');
     if (sumSeats) {
-        sumSeats.innerHTML = s.length > 0 
-            ? s.map(x => `<span class="sum-seat">${x}</span>`).join('') 
-            : '-';
+        sumSeats.innerHTML = s.length > 0 ? s.map(x => `<span class="sum-seat">${x}</span>`).join('') : '-';
     }
     
     document.getElementById('sumQty').textContent = qty;
@@ -406,24 +544,19 @@ function updateSummary() {
     
     const clientName = state.client?.nombre || document.getElementById('nameInput')?.value || '-';
     document.getElementById('sumClient').textContent = clientName;
-    
     document.getElementById('sumTotal').textContent = `Bs. ${total}`;
     
     const btn = document.getElementById('btnBoleto');
     const nitValue = document.getElementById('nitInput')?.value.trim();
-    if (btn) {
-        btn.disabled = !(v && qty > 0 && nitValue);
-    }
+    if (btn) btn.disabled = !(v && qty > 0 && nitValue);
 }
 
-// Event listeners para actualizar resumen
 document.addEventListener('DOMContentLoaded', () => {
     updateDateTime();
     setInterval(updateDateTime, 1000);
     
     const nitInput = document.getElementById('nitInput');
     const nameInput = document.getElementById('nameInput');
-    
     if (nitInput) nitInput.addEventListener('input', updateSummary);
     if (nameInput) nameInput.addEventListener('input', updateSummary);
 });
@@ -450,7 +583,6 @@ function showInvoice() {
     
     state.boleto = genBoletoNum();
     
-    // Usar datos de empresa de Google Sheets
     document.getElementById('invCompany').textContent = state.empresa.empresa || 'TRANSPORTE SURUBÍ';
     document.getElementById('invAddress').textContent = state.empresa.direccion || '';
     document.getElementById('invNit').textContent = state.empresa.nit || '';
@@ -467,20 +599,10 @@ function showInvoice() {
     document.getElementById('invPrice').textContent = `Bs. ${v.precio}`;
     document.getElementById('invTotal').textContent = `Bs. ${total}`;
     
-    // Generar código QR
     const qrContainer = document.getElementById('invoiceQR');
     qrContainer.innerHTML = '';
-    
     new QRCode(qrContainer, {
-        text: JSON.stringify({
-            boleto: state.boleto,
-            ruta: `${v.origen}-${v.destino}`,
-            fecha: v.fecha,
-            hora: v.hora,
-            asientos: s.join(','),
-            pasajero: name,
-            total
-        }),
+        text: JSON.stringify({ boleto: state.boleto, ruta: `${v.origen}-${v.destino}`, fecha: v.fecha, hora: v.hora, asientos: s.join(','), pasajero: name, total }),
         width: 100,
         height: 100
     });
@@ -497,7 +619,7 @@ function printInvoice() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// CONFIRMAR VENTA - GUARDAR EN GOOGLE SHEETS
+// CONFIRMAR VENTA
 // ═══════════════════════════════════════════════════════════════════════════════
 async function confirmSale() {
     const btn = document.getElementById('btnConfirm');
@@ -513,41 +635,23 @@ async function confirmSale() {
     const horaVenta = new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
     
     try {
-        // Guardar cada asiento como una venta separada
         for (const asiento of state.seats) {
             await appendRow(CONFIG.SHEETS.VENTAS, [
-                state.boleto,           // id_boleto
-                v.id,                   // id_viaje
-                nit,                    // nit_cliente
-                asiento,                // asiento
-                fechaVenta,             // fecha_venta
-                horaVenta,              // hora_venta
-                v.precio,               // precio
-                'ACTIVO'                // estado
+                state.boleto, v.id, nit, asiento, fechaVenta, horaVenta, v.precio, 'ACTIVO'
             ]);
         }
         
-        // Si es cliente nuevo, guardarlo
         if (!state.client) {
             const existingClient = state.clientes.find(c => c.nit === nit);
             if (!existingClient && name) {
-                await appendRow(CONFIG.SHEETS.CLIENTES, [
-                    nit,                // nit
-                    name,               // nombre
-                    phone,              // telefono
-                    email,              // email
-                    ''                  // direccion
-                ]);
+                await appendRow(CONFIG.SHEETS.CLIENTES, [nit, name, phone, email, '']);
             }
         }
         
         showAlert('success', '¡Venta registrada!', `Boleto: ${state.boleto}`);
         closeModal();
         clearForm();
-        
-        // Recargar datos para actualizar asientos ocupados
         await loadAllData();
-        
     } catch (error) {
         console.error('❌ Error guardando venta:', error);
         showAlert('error', 'Error', 'No se pudo guardar la venta');
@@ -564,6 +668,7 @@ function clearForm() {
     state.viaje = null;
     state.seats = [];
     state.occupied = [];
+    state.occupiedInfo = {};
     state.client = null;
     
     document.getElementById('nitInput').value = '';
@@ -571,22 +676,17 @@ function clearForm() {
     document.getElementById('phoneInput').value = '';
     document.getElementById('emailInput').value = '';
     document.getElementById('clientBox').classList.remove('show');
-    
     document.querySelectorAll('.trip-card').forEach(c => c.classList.remove('selected'));
     
     updateSeats();
     updateSummary();
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// REFRESCAR DATOS
-// ═══════════════════════════════════════════════════════════════════════════════
 function loadViajes() {
     if (state.isSignedIn) {
         loadAllData();
     } else {
-        showAlert('warning', 'No conectado', 'Esperando conexión a Google Sheets...');
-        handleAuthClick();
+        showAlert('warning', 'No conectado', 'Inicia sesión primero');
     }
 }
 
@@ -597,29 +697,17 @@ function updateDateTime() {
     const el = document.getElementById('datetime');
     if (el) {
         el.textContent = new Date().toLocaleDateString('es-ES', {
-            weekday: 'short',
-            day: 'numeric',
-            month: 'short',
-            hour: '2-digit',
-            minute: '2-digit'
+            weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit'
         });
     }
 }
 
 function formatDate(d) {
-    return new Date(d + 'T00:00:00').toLocaleDateString('es-ES', {
-        weekday: 'short',
-        day: 'numeric',
-        month: 'short'
-    });
+    return new Date(d + 'T00:00:00').toLocaleDateString('es-ES', { weekday: 'short', day: 'numeric', month: 'short' });
 }
 
 function formatDateShort(d) {
-    return new Date(d + 'T00:00:00').toLocaleDateString('es-ES', {
-        day: '2-digit',
-        month: '2-digit',
-        year: 'numeric'
-    });
+    return new Date(d + 'T00:00:00').toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric' });
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -631,27 +719,14 @@ function showAlert(type, title, msg) {
     
     const alert = document.createElement('div');
     alert.className = `alert ${type}`;
-    
-    const icons = {
-        success: '✓',
-        error: '✕',
-        warning: '⚠'
-    };
+    const icons = { success: '✓', error: '✕', warning: '⚠' };
     
     alert.innerHTML = `
         <span class="alert-icon">${icons[type]}</span>
-        <div class="alert-text">
-            <strong>${title}</strong>
-            <span>${msg}</span>
-        </div>
+        <div class="alert-text"><strong>${title}</strong><span>${msg}</span></div>
         <button class="alert-close" onclick="this.parentElement.remove()">×</button>
     `;
     
     container.appendChild(alert);
-    
-    setTimeout(() => {
-        if (alert.parentElement) {
-            alert.remove();
-        }
-    }, 3500);
+    setTimeout(() => { if (alert.parentElement) alert.remove(); }, 3500);
 }
