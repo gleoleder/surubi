@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Transporte Surubí - Sistema de Pasajes</title>
+    
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    
+    <!-- QR Code Library -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    
+    <!-- Estilos -->
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <!-- HEADER -->
+    <header>
+        <div class="header-content">
+            <div class="logo">
+                <div class="logo-icon">🚐</div>
+                <div>
+                    <h1>Transporte Surubí</h1>
+                    <span>Sistema de Pasajes</span>
+                </div>
+            </div>
+            <div class="header-right">
+                <div class="badge">
+                    <div class="status-dot"></div>
+                    <span>Conectando...</span>
+                </div>
+                <div class="datetime" id="datetime"></div>
+            </div>
+        </div>
+    </header>
+
+    <!-- ALERTAS -->
+    <div class="alerts" id="alerts"></div>
+
+    <!-- CONTENIDO PRINCIPAL -->
+    <main>
+        <div class="left-col">
+            
+            <!-- SELECCIÓN DE VIAJES -->
+            <div class="card">
+                <div class="card-header">
+                    <div class="card-title">
+                        <div class="card-icon">📅</div>
+                        Seleccionar Viaje
+                    </div>
+                    <button class="btn btn-icon" onclick="loadViajes()" title="Actualizar">↻</button>
+                </div>
+                <div class="trip-list" id="tripList">
+                    <p style="text-align:center;color:var(--text-muted);padding:1rem;">Conectando a Google Sheets...</p>
+                </div>
+            </div>
+
+            <!-- SELECCIÓN DE ASIENTOS -->
+            <div class="card">
+                <div class="card-header">
+                    <div class="card-title">
+                        <div class="card-icon">💺</div>
+                        Seleccionar Asientos
+                    </div>
+                </div>
+                
+                <!-- Leyenda -->
+                <div class="legend">
+                    <div class="legend-item"><div class="legend-box avail"></div>Disponible</div>
+                    <div class="legend-item"><div class="legend-box sel"></div>Seleccionado</div>
+                    <div class="legend-item"><div class="legend-box ocu"></div>Ocupado</div>
+                </div>
+
+                <!-- Vehículo SVG -->
+                <div class="vehiculo-container">
+                    <div class="entrada-label">↓ &lt; ENTRADA</div>
+                    
+                    <div class="vehiculo">
+                        <svg class="contorno" viewBox="0 0 520 290" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <defs>
+                                <linearGradient id="bodyGradient" x1="0%" y1="0%" x2="0%" y2="100%">
+                                    <stop offset="0%" style="stop-color:#0088a0;stop-opacity:1" />
+                                    <stop offset="50%" style="stop-color:#b9bad3;stop-opacity:1" />
+                                    <stop offset="100%" style="stop-color:#0088a0;stop-opacity:1" />
+                                </linearGradient>
+                                <linearGradient id="windowGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                                    <stop offset="0%" style="stop-color:#edf0f2;stop-opacity:1" />
+                                    <stop offset="100%" style="stop-color:#4a5a6a;stop-opacity:1" />
+                                </linearGradient>
+                                <linearGradient id="headlightGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+                                    <stop offset="0%" style="stop-color:#c0d0e0;stop-opacity:1" />
+                                    <stop offset="100%" style="stop-color:#e8f0f8;stop-opacity:1" />
+                                </linearGradient>
+                                <linearGradient id="taillightGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+                                    <stop offset="0%" style="stop-color:#ff4040;stop-opacity:1" />
+                                    <stop offset="100%" style="stop-color:#cc2020;stop-opacity:1" />
+                                </linearGradient>
+                            </defs>
+                            
+                            <ellipse cx="265" cy="150" rx="230" ry="125" fill="rgba(0,0,0,0.1)" transform="translate(8,8)"/>
+                            <path d="M 10 145 Q 10 60 70 20 Q 150 10 470 10 Q 510 10 510 60 L 510 230 Q 510 280 470 280 Q 150 280 70 270 Q 10 230 10 145 Z" fill="url(#bodyGradient)" stroke="#006070" stroke-width="10"/>
+                            <path d="M 120 12 L 480 12" stroke="#007888" stroke-width="5" fill="none"/>
+                            <path d="M 120 280 L 480 280" stroke="#007888" stroke-width="5" fill="none"/>
+                            <path d="M 150 65 Q 110 65 110 145 Q 110 225 150 225 Q 160 145 150 65 Z" fill="url(#windowGradient)" stroke="#1a2a3a" stroke-width="2"/>
+                            <path d="M 445 60 Q 495 60 500 145 Q 495 230 445 230 L 445 60 Z" fill="url(#windowGradient)" stroke="#1a2a3a" stroke-width="2"/>
+                            <ellipse cx="117" cy="15" rx="5" ry="15" fill="url(#bodyGradient)" stroke="#006070" stroke-width="2"/>
+                            <ellipse cx="117" cy="275" rx="5" ry="15" fill="url(#bodyGradient)" stroke="#006070" stroke-width="2"/>
+                            <path d="M 70 20 Q 35 35 30 65 L 35 80 Q 55 90 60 75 Z" fill="url(#headlightGradient)" stroke="#8090a0" stroke-width="5"/>
+                            <path d="M 70 270 Q 35 255 30 225 L 35 210 Q 55 200 60 215 Z" fill="url(#headlightGradient)" stroke="#8090a0" stroke-width="5"/>
+                            <path d="M 495 35 Q 505 40 508 55 L 506 70 Q 500 75 492 70 L 488 40 Q 492 35 495 35 Z" fill="url(#taillightGradient)" stroke="#aa1010" stroke-width="1"/>
+                            <path d="M 495 255 Q 505 250 508 235 L 506 220 Q 500 215 492 220 L 488 250 Q 492 255 495 255 Z" fill="url(#taillightGradient)" stroke="#aa1010" stroke-width="1"/>
+                            <path d="M 440 60 L 440 235" stroke="#008898" stroke-width="1"/>
+                            <rect x="120" y="5" width="70" height="25" rx="9" fill="#006070"/>
+                            <rect x="120" y="262" width="70" height="25" rx="9" fill="#006070"/>
+                            <rect x="370" y="0" width="70" height="25" rx="9" fill="#006070"/>
+                            <rect x="370" y="265" width="70" height="25" rx="9" fill="#006070"/>
+                        </svg>
+                        
+                        <!-- Asientos -->
+                        <div class="asientos">
+                            <div class="columna columna-1">
+                                <div class="asiento" data-seat="1" onclick="toggleSeat(1)">
+                                    <span class="seat-label">[1]</span>
+                                </div>
+                                <div class="asiento driver">
+                                    <span class="seat-label">[C]</span>
+                                    <span class="seat-label-sub">CHOFER</span>
+                                </div>
+                            </div>
+                            
+                            <div class="columna columna-2">
+                                <div class="asiento" data-seat="2" onclick="toggleSeat(2)">
+                                    <span class="seat-label">[2]</span>
+                                </div>
+                                <div class="asiento" data-seat="3" onclick="toggleSeat(3)">
+                                    <span class="seat-label">[3]</span>
+                                </div>
+                                <div class="asiento" data-seat="4" onclick="toggleSeat(4)">
+                                    <span class="seat-label">[4]</span>
+                                </div>
+                            </div>
+                            
+                            <div class="columna columna-3">
+                                <div class="asiento" data-seat="5" onclick="toggleSeat(5)">
+                                    <span class="seat-label">[5]</span>
+                                </div>
+                                <div class="asiento" data-seat="6" onclick="toggleSeat(6)">
+                                    <span class="seat-label">[6]</span>
+                                </div>
+                                <div class="asiento" data-seat="7" onclick="toggleSeat(7)">
+                                    <span class="seat-label">[7]</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="selected-box" id="selectedBox">
+                    <div class="selected-label">Asientos seleccionados</div>
+                    <div class="selected-tags" id="selectedTags"></div>
+                </div>
+            </div>
+
+            <!-- DATOS DEL CLIENTE -->
+            <div class="card">
+                <div class="card-header">
+                    <div class="card-title">
+                        <div class="card-icon">👤</div>
+                        Datos del Cliente
+                    </div>
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label">NIT / CI</label>
+                    <div class="input-group">
+                        <input type="text" class="form-input" id="nitInput" placeholder="Ingrese NIT o CI">
+                        <button class="btn btn-icon" onclick="searchClient()">🔍</button>
+                    </div>
+                    <div class="client-box" id="clientBox">
+                        <h4 id="clientName">-</h4>
+                        <p id="clientInfo">-</p>
+                    </div>
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label">Nombre del Pasajero</label>
+                    <input type="text" class="form-input" id="nameInput" placeholder="Nombre completo">
+                </div>
+                
+                <div class="form-row">
+                    <div class="form-group">
+                        <label class="form-label">Teléfono</label>
+                        <input type="tel" class="form-input" id="phoneInput" placeholder="Opcional">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Email</label>
+                        <input type="email" class="form-input" id="emailInput" placeholder="Opcional">
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- PANEL DE RESUMEN -->
+        <div class="right-col">
+            <div class="card summary-card">
+                <div class="card-header">
+                    <div class="card-title">
+                        <div class="card-icon">🧾</div>
+                        Resumen
+                    </div>
+                </div>
+                
+                <div class="sum-row"><span class="sum-label">Ruta</span><span class="sum-value" id="sumRoute">-</span></div>
+                <div class="sum-row"><span class="sum-label">Fecha</span><span class="sum-value" id="sumDate">-</span></div>
+                <div class="sum-row"><span class="sum-label">Hora</span><span class="sum-value" id="sumTime">-</span></div>
+                <div class="sum-row"><span class="sum-label">Vehículo</span><span class="sum-value" id="sumVeh">-</span></div>
+                <div class="sum-row"><span class="sum-label">Conductor</span><span class="sum-value" id="sumDriver">-</span></div>
+                <div class="sum-row"><span class="sum-label">Asiento(s)</span><div class="sum-seats" id="sumSeats">-</div></div>
+                <div class="sum-row"><span class="sum-label">Cantidad</span><span class="sum-value" id="sumQty">0</span></div>
+                <div class="sum-row"><span class="sum-label">Precio Unit.</span><span class="sum-value" id="sumPrice">Bs. 0</span></div>
+                <div class="sum-row"><span class="sum-label">Cliente</span><span class="sum-value" id="sumClient">-</span></div>
+                
+                <div class="sum-total">
+                    <div class="sum-row">
+                        <span class="sum-label">TOTAL</span>
+                        <span class="sum-value" id="sumTotal">Bs. 0</span>
+                    </div>
+                </div>
+                
+                <button class="btn btn-primary" id="btnBoleto" onclick="showInvoice()" disabled style="margin-top:0.75rem;">
+                    Generar Boleto
+                </button>
+                <button class="btn btn-secondary" onclick="clearForm()">
+                    Limpiar
+                </button>
+            </div>
+        </div>
+    </main>
+
+    <!-- FOOTER -->
+    <footer>
+        Transporte Surubí v1.0 | Elaborado por <strong>GLEO</strong> | © 2025
+    </footer>
+
+    <!-- MODAL DE FACTURA -->
+    <div class="modal" id="modal">
+        <div class="modal-content">
+            <div class="invoice" id="invoicePrint">
+                <div class="inv-header">
+                    <div class="inv-logo">🚐</div>
+                    <div class="inv-company" id="invCompany">TRANSPORTE SURUBÍ</div>
+                    <div class="inv-sub" id="invAddress">Servicio de Transporte</div>
+                    <div class="inv-nit">NIT: <span id="invNit">-</span></div>
+                </div>
+                
+                <div class="inv-title">BOLETO DE VIAJE</div>
+                <div class="inv-number" id="invNumber">-</div>
+                
+                <div class="inv-section">
+                    <div class="inv-section-title">📍 Datos del Viaje</div>
+                    <div class="inv-row"><span class="inv-row-label">Ruta:</span><span class="inv-row-value" id="invRoute">-</span></div>
+                    <div class="inv-row"><span class="inv-row-label">Fecha:</span><span class="inv-row-value" id="invDate">-</span></div>
+                    <div class="inv-row"><span class="inv-row-label">Hora:</span><span class="inv-row-value" id="invTime">-</span></div>
+                    <div class="inv-row"><span class="inv-row-label">Vehículo:</span><span class="inv-row-value" id="invVeh">-</span></div>
+                    <div class="inv-row"><span class="inv-row-label">Conductor:</span><span class="inv-row-value" id="invDriver">-</span></div>
+                </div>
+                
+                <div class="inv-section">
+                    <div class="inv-section-title">🎫 Detalle</div>
+                    <div class="inv-row"><span class="inv-row-label">Pasajero:</span><span class="inv-row-value" id="invPassenger">-</span></div>
+                    <div class="inv-row"><span class="inv-row-label">NIT/CI:</span><span class="inv-row-value" id="invClientNit">-</span></div>
+                    <div class="inv-row"><span class="inv-row-label">Asiento(s):</span><div class="inv-seats" id="invSeats">-</div></div>
+                    <div class="inv-row"><span class="inv-row-label">Cantidad:</span><span class="inv-row-value" id="invQty">-</span></div>
+                    <div class="inv-row"><span class="inv-row-label">P. Unitario:</span><span class="inv-row-value" id="invPrice">-</span></div>
+                </div>
+                
+                <div class="inv-total">
+                    <div class="inv-total-row">
+                        <span>TOTAL:</span>
+                        <span class="inv-total-amount" id="invTotal">Bs. 0</span>
+                    </div>
+                </div>
+                
+                <div class="inv-qr">
+                    <div class="inv-qr-title">Escanea para verificar</div>
+                    <div id="invoiceQR"></div>
+                </div>
+                
+                <div class="inv-footer">
+                    <div class="inv-thanks">¡Gracias por viajar con nosotros!</div>
+                    <div>Conserve este boleto durante el viaje</div>
+                    <div class="inv-dev">Elaborado por GLEO</div>
+                </div>
+            </div>
+            
+            <div class="modal-actions">
+                <button class="btn btn-cancel" onclick="closeModal()">Cancelar</button>
+                <button class="btn btn-print" onclick="printInvoice()">🖨️ Imprimir</button>
+                <button class="btn btn-confirm" id="btnConfirm" onclick="confirmSale()">✓ Confirmar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- SCRIPTS -->
+    <script src="config.js"></script>
+    <script src="script.js"></script>
+    
+    <!-- Google API -->
+    <script async defer src="https://apis.google.com/js/api.js" onload="gapiLoaded()"></script>
+    <script async defer src="https://accounts.google.com/gsi/client" onload="gisLoaded()"></script>
+</body>
+</html>
