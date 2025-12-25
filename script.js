@@ -25,6 +25,51 @@ const state = {
 };
 
 // ═══════════════════════════════════════════════════════════════════════════════
+// PERSISTENCIA DE SESIÓN - LOCAL STORAGE
+// ═══════════════════════════════════════════════════════════════════════════════
+const SESSION_KEY = 'surubi_google_token';
+const SESSION_EXPIRY_KEY = 'surubi_token_expiry';
+
+function saveToken(token) {
+    try {
+        localStorage.setItem(SESSION_KEY, JSON.stringify(token));
+        // Guardar tiempo de expiración (1 hora desde ahora)
+        const expiry = Date.now() + (3600 * 1000);
+        localStorage.setItem(SESSION_EXPIRY_KEY, expiry.toString());
+        console.log('✅ Token guardado en localStorage');
+    } catch (e) {
+        console.error('Error guardando token:', e);
+    }
+}
+
+function getSavedToken() {
+    try {
+        const tokenStr = localStorage.getItem(SESSION_KEY);
+        const expiry = localStorage.getItem(SESSION_EXPIRY_KEY);
+        
+        if (!tokenStr || !expiry) return null;
+        
+        // Verificar si el token expiró
+        if (Date.now() > parseInt(expiry)) {
+            console.log('⚠️ Token expirado, limpiando...');
+            clearSavedToken();
+            return null;
+        }
+        
+        return JSON.parse(tokenStr);
+    } catch (e) {
+        console.error('Error leyendo token:', e);
+        return null;
+    }
+}
+
+function clearSavedToken() {
+    localStorage.removeItem(SESSION_KEY);
+    localStorage.removeItem(SESSION_EXPIRY_KEY);
+    console.log('🗑️ Token eliminado');
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
 // INICIALIZACIÓN DE GOOGLE API
 // ═══════════════════════════════════════════════════════════════════════════════
 function gapiLoaded() {
@@ -38,7 +83,8 @@ async function initializeGapiClient() {
             discoveryDocs: [CONFIG.DISCOVERY_DOC],
         });
         console.log('✅ GAPI client inicializado');
-        maybeEnableButtons();
+        gapiInited = true;
+        checkSavedSession();
     } catch (error) {
         console.error('❌ Error inicializando GAPI:', error);
         showAlert('error', 'Error de conexión', 'No se pudo conectar con Google');
@@ -52,19 +98,53 @@ function gisLoaded() {
         callback: handleAuthCallback,
     });
     console.log('✅ GIS client inicializado');
-    maybeEnableButtons();
+    gisInited = true;
+    checkSavedSession();
 }
 
 let tokenClient;
 let gapiInited = false;
 let gisInited = false;
 
-function maybeEnableButtons() {
-    gapiInited = typeof gapi !== 'undefined' && gapi.client;
-    gisInited = typeof tokenClient !== 'undefined';
+// Verificar si hay una sesión guardada
+function checkSavedSession() {
+    if (!gapiInited || !gisInited) return;
     
-    if (gapiInited && gisInited) {
-        // Intentar autenticación automática
+    const savedToken = getSavedToken();
+    
+    if (savedToken) {
+        console.log('🔄 Restaurando sesión guardada...');
+        // Restaurar el token en gapi
+        gapi.client.setToken(savedToken);
+        
+        // Verificar que el token aún funciona
+        testTokenValidity();
+    } else {
+        console.log('🔑 No hay sesión guardada, solicitando login...');
+        // No hay token guardado, pedir login
+        handleAuthClick();
+    }
+}
+
+// Probar si el token guardado aún es válido
+async function testTokenValidity() {
+    try {
+        // Intentar una operación simple para verificar el token
+        await gapi.client.sheets.spreadsheets.get({
+            spreadsheetId: CONFIG.GOOGLE_SHEET_ID,
+            fields: 'spreadsheetId'
+        });
+        
+        // Token válido
+        console.log('✅ Sesión restaurada correctamente');
+        state.isSignedIn = true;
+        updateConnectionStatus(true);
+        showAlert('success', 'Sesión activa', 'Bienvenido de vuelta');
+        loadAllData();
+        
+    } catch (error) {
+        console.log('⚠️ Token inválido o expirado, solicitando nuevo login...');
+        clearSavedToken();
         handleAuthClick();
     }
 }
@@ -75,10 +155,14 @@ function handleAuthClick() {
         return;
     }
     
-    if (gapi.client.getToken() === null) {
-        tokenClient.requestAccessToken({ prompt: 'consent' });
-    } else {
+    const savedToken = getSavedToken();
+    
+    if (savedToken) {
+        // Ya tenemos un token, usarlo sin pedir permiso
         tokenClient.requestAccessToken({ prompt: '' });
+    } else {
+        // Primera vez, pedir consentimiento
+        tokenClient.requestAccessToken({ prompt: 'consent' });
     }
 }
 
@@ -89,6 +173,10 @@ function handleAuthCallback(response) {
         return;
     }
     
+    // Guardar el token para persistencia
+    const token = gapi.client.getToken();
+    saveToken(token);
+    
     state.isSignedIn = true;
     updateConnectionStatus(true);
     showAlert('success', 'Conectado', 'Sistema conectado a Google Sheets');
@@ -97,16 +185,63 @@ function handleAuthCallback(response) {
     loadAllData();
 }
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// CERRAR SESIÓN
+// ═══════════════════════════════════════════════════════════════════════════════
+function handleSignOut() {
+    const token = gapi.client.getToken();
+    
+    if (token !== null) {
+        // Revocar el token de Google
+        google.accounts.oauth2.revoke(token.access_token, () => {
+            console.log('✅ Token revocado');
+        });
+        gapi.client.setToken(null);
+    }
+    
+    // Limpiar token guardado
+    clearSavedToken();
+    
+    // Actualizar estado
+    state.isSignedIn = false;
+    updateConnectionStatus(false);
+    
+    // Limpiar datos
+    state.viajes = [];
+    state.clientes = [];
+    state.ventas = [];
+    clearForm();
+    
+    // Limpiar lista de viajes
+    const tripList = document.getElementById('tripList');
+    if (tripList) {
+        tripList.innerHTML = '<p style="text-align:center;color:var(--text-muted);padding:1rem;">Sesión cerrada. Click en "Iniciar Sesión" para continuar.</p>';
+    }
+    
+    showAlert('warning', 'Sesión cerrada', 'Has cerrado sesión correctamente');
+}
+
 function updateConnectionStatus(connected) {
     const badge = document.querySelector('.badge');
-    const statusText = badge.querySelector('span');
+    const statusText = document.querySelector('.status-text');
+    const authBtn = document.getElementById('authBtn');
     
     if (connected) {
         badge.classList.add('online');
-        statusText.textContent = 'Conectado';
+        if (statusText) statusText.textContent = 'Conectado';
+        if (authBtn) {
+            authBtn.textContent = '🚪 Cerrar Sesión';
+            authBtn.onclick = handleSignOut;
+            authBtn.classList.add('logout');
+        }
     } else {
         badge.classList.remove('online');
-        statusText.textContent = 'Desconectado';
+        if (statusText) statusText.textContent = 'Desconectado';
+        if (authBtn) {
+            authBtn.textContent = '🔑 Iniciar Sesión';
+            authBtn.onclick = handleAuthClick;
+            authBtn.classList.remove('logout');
+        }
     }
 }
 
