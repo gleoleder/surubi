@@ -570,10 +570,207 @@ footer strong { color: var(--accent); }
     main { padding: 0.75rem; }
     .card { padding: 1rem; }
     .form-row { grid-template-columns: 1fr; }
-    .vehiculo { height: 240px; }
-    .asientos { left: 28%; gap: 8px; }
-    .asiento { width: 55px; height: 50px; }
-    .seat-label { font-size: 13px; }
-    .columna { gap: 8px; }
-    .columna-1 { height: 170px; }
+    
+    /* VEHÍCULO RESPONSIVE - ASIENTOS DENTRO DEL CONTORNO */
+    .vehiculo-container {
+        padding: 35px 10px 15px;
+    }
+    
+    .vehiculo {
+        height: 200px;
+        max-width: 320px;
+    }
+    
+    .entrada-label {
+        font-size: 11px;
+        top: 10px;
+    }
+    
+    .asientos {
+        left: 30%;
+        top: 22px;
+        gap: 6px;
+    }
+    
+    .asiento {
+        width: 44px;
+        height: 40px;
+    }
+    
+    .asiento::before {
+        width: 12px;
+        top: 4px;
+        bottom: 4px;
+        right: -1px;
+    }
+    
+    .seat-label {
+        font-size: 10px;
+        margin-left: -10px;
+    }
+    
+    .seat-label-sub {
+        font-size: 5px;
+        margin-left: -10px;
+    }
+    
+    .columna {
+        gap: 5px;
+    }
+    
+    .columna-1 {
+        height: 140px;
+    }
+}
+
+/* Extra small devices */
+@media (max-width: 400px) {
+    .vehiculo {
+        height: 180px;
+        max-width: 280px;
+    }
+    
+    .asientos {
+        left: 28%;
+        top: 18px;
+        gap: 4px;
+    }
+    
+    .asiento {
+        width: 38px;
+        height: 35px;
+    }
+    
+    .asiento::before {
+        width: 10px;
+        top: 3px;
+        bottom: 3px;
+    }
+    
+    .seat-label {
+        font-size: 9px;
+        margin-left: -8px;
+    }
+    
+    .seat-label-sub {
+        font-size: 4px;
+        margin-left: -8px;
+    }
+    
+    .columna {
+        gap: 4px;
+    }
+    
+    .columna-1 {
+        height: 125px;
+    }
+    
+    .entrada-label {
+        font-size: 9px;
+        top: 8px;
+    }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   MODAL DE INFORMACIÓN DEL OCUPANTE
+   ═══════════════════════════════════════════════════════════════════════════════ */
+.occupant-modal {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.5);
+    backdrop-filter: blur(4px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 3000;
+    padding: 1rem;
+    animation: fadeIn 0.2s ease;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+.occupant-content {
+    background: #fff;
+    border-radius: 12px;
+    width: 100%;
+    max-width: 320px;
+    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.3);
+    animation: popIn 0.3s ease;
+    overflow: hidden;
+}
+
+@keyframes popIn {
+    from { transform: scale(0.8); opacity: 0; }
+    to { transform: scale(1); opacity: 1; }
+}
+
+.occupant-header {
+    background: linear-gradient(135deg, var(--error), #b91c1c);
+    color: white;
+    padding: 1rem 1.25rem;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.occupant-icon {
+    font-size: 1.5rem;
+}
+
+.occupant-header h3 {
+    font-size: 1.1rem;
+    font-weight: 600;
+    margin: 0;
+}
+
+.occupant-body {
+    padding: 1.25rem;
+}
+
+.occupant-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.6rem 0;
+    border-bottom: 1px solid var(--border);
+}
+
+.occupant-row:last-child {
+    border-bottom: none;
+}
+
+.occupant-label {
+    color: var(--text-muted);
+    font-size: 0.9rem;
+    font-weight: 500;
+}
+
+.occupant-value {
+    color: var(--text-primary);
+    font-weight: 600;
+    font-size: 0.95rem;
+    text-align: right;
+    max-width: 60%;
+    word-break: break-word;
+}
+
+.occupant-close {
+    width: 100%;
+    padding: 0.875rem;
+    background: var(--bg-input);
+    border: none;
+    border-top: 1px solid var(--border);
+    color: var(--text-secondary);
+    font-size: 0.95rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.occupant-close:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
 }
