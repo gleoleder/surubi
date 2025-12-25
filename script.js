@@ -19,55 +19,9 @@ const state = {
     viaje: null,
     seats: [],
     occupied: [],
-    occupiedInfo: {}, // Info de quién ocupó cada asiento { asiento: { nombre, nit } }
     client: null,
     boleto: null
 };
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// PERSISTENCIA DE SESIÓN - LOCAL STORAGE
-// ═══════════════════════════════════════════════════════════════════════════════
-const SESSION_KEY = 'surubi_google_token';
-const SESSION_EXPIRY_KEY = 'surubi_token_expiry';
-
-function saveToken(token) {
-    try {
-        localStorage.setItem(SESSION_KEY, JSON.stringify(token));
-        // Guardar tiempo de expiración (1 hora desde ahora)
-        const expiry = Date.now() + (3600 * 1000);
-        localStorage.setItem(SESSION_EXPIRY_KEY, expiry.toString());
-        console.log('✅ Token guardado en localStorage');
-    } catch (e) {
-        console.error('Error guardando token:', e);
-    }
-}
-
-function getSavedToken() {
-    try {
-        const tokenStr = localStorage.getItem(SESSION_KEY);
-        const expiry = localStorage.getItem(SESSION_EXPIRY_KEY);
-        
-        if (!tokenStr || !expiry) return null;
-        
-        // Verificar si el token expiró
-        if (Date.now() > parseInt(expiry)) {
-            console.log('⚠️ Token expirado, limpiando...');
-            clearSavedToken();
-            return null;
-        }
-        
-        return JSON.parse(tokenStr);
-    } catch (e) {
-        console.error('Error leyendo token:', e);
-        return null;
-    }
-}
-
-function clearSavedToken() {
-    localStorage.removeItem(SESSION_KEY);
-    localStorage.removeItem(SESSION_EXPIRY_KEY);
-    console.log('🗑️ Token eliminado');
-}
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // INICIALIZACIÓN DE GOOGLE API
@@ -83,8 +37,7 @@ async function initializeGapiClient() {
             discoveryDocs: [CONFIG.DISCOVERY_DOC],
         });
         console.log('✅ GAPI client inicializado');
-        gapiInited = true;
-        checkSavedSession();
+        maybeEnableButtons();
     } catch (error) {
         console.error('❌ Error inicializando GAPI:', error);
         showAlert('error', 'Error de conexión', 'No se pudo conectar con Google');
@@ -98,53 +51,19 @@ function gisLoaded() {
         callback: handleAuthCallback,
     });
     console.log('✅ GIS client inicializado');
-    gisInited = true;
-    checkSavedSession();
+    maybeEnableButtons();
 }
 
 let tokenClient;
 let gapiInited = false;
 let gisInited = false;
 
-// Verificar si hay una sesión guardada
-function checkSavedSession() {
-    if (!gapiInited || !gisInited) return;
+function maybeEnableButtons() {
+    gapiInited = typeof gapi !== 'undefined' && gapi.client;
+    gisInited = typeof tokenClient !== 'undefined';
     
-    const savedToken = getSavedToken();
-    
-    if (savedToken) {
-        console.log('🔄 Restaurando sesión guardada...');
-        // Restaurar el token en gapi
-        gapi.client.setToken(savedToken);
-        
-        // Verificar que el token aún funciona
-        testTokenValidity();
-    } else {
-        console.log('🔑 No hay sesión guardada, solicitando login...');
-        // No hay token guardado, pedir login
-        handleAuthClick();
-    }
-}
-
-// Probar si el token guardado aún es válido
-async function testTokenValidity() {
-    try {
-        // Intentar una operación simple para verificar el token
-        await gapi.client.sheets.spreadsheets.get({
-            spreadsheetId: CONFIG.GOOGLE_SHEET_ID,
-            fields: 'spreadsheetId'
-        });
-        
-        // Token válido
-        console.log('✅ Sesión restaurada correctamente');
-        state.isSignedIn = true;
-        updateConnectionStatus(true);
-        showAlert('success', 'Sesión activa', 'Bienvenido de vuelta');
-        loadAllData();
-        
-    } catch (error) {
-        console.log('⚠️ Token inválido o expirado, solicitando nuevo login...');
-        clearSavedToken();
+    if (gapiInited && gisInited) {
+        // Intentar autenticación automática
         handleAuthClick();
     }
 }
@@ -155,14 +74,10 @@ function handleAuthClick() {
         return;
     }
     
-    const savedToken = getSavedToken();
-    
-    if (savedToken) {
-        // Ya tenemos un token, usarlo sin pedir permiso
-        tokenClient.requestAccessToken({ prompt: '' });
-    } else {
-        // Primera vez, pedir consentimiento
+    if (gapi.client.getToken() === null) {
         tokenClient.requestAccessToken({ prompt: 'consent' });
+    } else {
+        tokenClient.requestAccessToken({ prompt: '' });
     }
 }
 
@@ -173,10 +88,6 @@ function handleAuthCallback(response) {
         return;
     }
     
-    // Guardar el token para persistencia
-    const token = gapi.client.getToken();
-    saveToken(token);
-    
     state.isSignedIn = true;
     updateConnectionStatus(true);
     showAlert('success', 'Conectado', 'Sistema conectado a Google Sheets');
@@ -185,63 +96,16 @@ function handleAuthCallback(response) {
     loadAllData();
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// CERRAR SESIÓN
-// ═══════════════════════════════════════════════════════════════════════════════
-function handleSignOut() {
-    const token = gapi.client.getToken();
-    
-    if (token !== null) {
-        // Revocar el token de Google
-        google.accounts.oauth2.revoke(token.access_token, () => {
-            console.log('✅ Token revocado');
-        });
-        gapi.client.setToken(null);
-    }
-    
-    // Limpiar token guardado
-    clearSavedToken();
-    
-    // Actualizar estado
-    state.isSignedIn = false;
-    updateConnectionStatus(false);
-    
-    // Limpiar datos
-    state.viajes = [];
-    state.clientes = [];
-    state.ventas = [];
-    clearForm();
-    
-    // Limpiar lista de viajes
-    const tripList = document.getElementById('tripList');
-    if (tripList) {
-        tripList.innerHTML = '<p style="text-align:center;color:var(--text-muted);padding:1rem;">Sesión cerrada. Click en "Iniciar Sesión" para continuar.</p>';
-    }
-    
-    showAlert('warning', 'Sesión cerrada', 'Has cerrado sesión correctamente');
-}
-
 function updateConnectionStatus(connected) {
     const badge = document.querySelector('.badge');
-    const statusText = document.querySelector('.status-text');
-    const authBtn = document.getElementById('authBtn');
+    const statusText = badge.querySelector('span');
     
     if (connected) {
         badge.classList.add('online');
-        if (statusText) statusText.textContent = 'Conectado';
-        if (authBtn) {
-            authBtn.textContent = '🚪 Cerrar Sesión';
-            authBtn.onclick = handleSignOut;
-            authBtn.classList.add('logout');
-        }
+        statusText.textContent = 'Conectado';
     } else {
         badge.classList.remove('online');
-        if (statusText) statusText.textContent = 'Desconectado';
-        if (authBtn) {
-            authBtn.textContent = '🔑 Iniciar Sesión';
-            authBtn.onclick = handleAuthClick;
-            authBtn.classList.remove('logout');
-        }
+        statusText.textContent = 'Desconectado';
     }
 }
 
@@ -409,27 +273,11 @@ function selectViaje(id) {
     state.viaje = state.viajes.find(v => v.id === id);
     state.seats = [];
     
-    // Obtener asientos ocupados de las ventas con info del cliente
-    const ventasViaje = state.ventas.filter(v => v.id_viaje === id && v.estado !== 'CANCELADO');
-    
-    state.occupied = ventasViaje
+    // Obtener asientos ocupados de las ventas
+    state.occupied = state.ventas
+        .filter(v => v.id_viaje === id && v.estado !== 'CANCELADO')
         .map(v => parseInt(v.asiento))
         .filter(n => !isNaN(n));
-    
-    // Guardar info de quién ocupó cada asiento
-    state.occupiedInfo = {};
-    ventasViaje.forEach(venta => {
-        const asiento = parseInt(venta.asiento);
-        if (!isNaN(asiento)) {
-            // Buscar el cliente en la lista de clientes
-            const cliente = state.clientes.find(c => c.nit === venta.nit_cliente);
-            state.occupiedInfo[asiento] = {
-                nombre: cliente ? cliente.nombre : 'Cliente',
-                nit: venta.nit_cliente || 'N/A',
-                boleto: venta.id_boleto || ''
-            };
-        }
-    });
     
     updateSeats();
     updateSummary();
@@ -462,14 +310,8 @@ function toggleSeat(n) {
         return;
     }
     
-    // Si está ocupado, mostrar info del ocupante
     if (state.occupied.includes(n)) {
-        const info = state.occupiedInfo[n];
-        if (info) {
-            showOccupantInfo(n, info);
-        } else {
-            showAlert('error', 'Ocupado', `El asiento ${n} no está disponible`);
-        }
+        showAlert('error', 'Ocupado', `El asiento ${n} no está disponible`);
         return;
     }
     
@@ -484,54 +326,6 @@ function toggleSeat(n) {
     
     updateSeats();
     updateSummary();
-}
-
-// Mostrar información del ocupante del asiento
-function showOccupantInfo(asiento, info) {
-    // Crear modal de info
-    const existingModal = document.getElementById('occupantModal');
-    if (existingModal) existingModal.remove();
-    
-    const modal = document.createElement('div');
-    modal.id = 'occupantModal';
-    modal.className = 'occupant-modal';
-    modal.innerHTML = `
-        <div class="occupant-content">
-            <div class="occupant-header">
-                <span class="occupant-icon">💺</span>
-                <h3>Asiento ${asiento} - Ocupado</h3>
-            </div>
-            <div class="occupant-body">
-                <div class="occupant-row">
-                    <span class="occupant-label">👤 Pasajero:</span>
-                    <span class="occupant-value">${info.nombre}</span>
-                </div>
-                <div class="occupant-row">
-                    <span class="occupant-label">🪪 NIT/CI:</span>
-                    <span class="occupant-value">${info.nit}</span>
-                </div>
-                ${info.boleto ? `
-                <div class="occupant-row">
-                    <span class="occupant-label">🎫 Boleto:</span>
-                    <span class="occupant-value">${info.boleto}</span>
-                </div>
-                ` : ''}
-            </div>
-            <button class="occupant-close" onclick="closeOccupantModal()">Cerrar</button>
-        </div>
-    `;
-    
-    document.body.appendChild(modal);
-    
-    // Cerrar al hacer click fuera
-    modal.addEventListener('click', (e) => {
-        if (e.target === modal) closeOccupantModal();
-    });
-}
-
-function closeOccupantModal() {
-    const modal = document.getElementById('occupantModal');
-    if (modal) modal.remove();
 }
 
 function updateSelectedDisplay() {
@@ -770,7 +564,6 @@ function clearForm() {
     state.viaje = null;
     state.seats = [];
     state.occupied = [];
-    state.occupiedInfo = {};
     state.client = null;
     
     document.getElementById('nitInput').value = '';
