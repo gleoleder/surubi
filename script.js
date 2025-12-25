@@ -19,6 +19,7 @@ const state = {
     viaje: null,
     seats: [],
     occupied: [],
+    occupiedInfo: {}, // Info de quién ocupó cada asiento { asiento: { nombre, nit } }
     client: null,
     boleto: null
 };
@@ -273,11 +274,27 @@ function selectViaje(id) {
     state.viaje = state.viajes.find(v => v.id === id);
     state.seats = [];
     
-    // Obtener asientos ocupados de las ventas
-    state.occupied = state.ventas
-        .filter(v => v.id_viaje === id && v.estado !== 'CANCELADO')
+    // Obtener asientos ocupados de las ventas con info del cliente
+    const ventasViaje = state.ventas.filter(v => v.id_viaje === id && v.estado !== 'CANCELADO');
+    
+    state.occupied = ventasViaje
         .map(v => parseInt(v.asiento))
         .filter(n => !isNaN(n));
+    
+    // Guardar info de quién ocupó cada asiento
+    state.occupiedInfo = {};
+    ventasViaje.forEach(venta => {
+        const asiento = parseInt(venta.asiento);
+        if (!isNaN(asiento)) {
+            // Buscar el cliente en la lista de clientes
+            const cliente = state.clientes.find(c => c.nit === venta.nit_cliente);
+            state.occupiedInfo[asiento] = {
+                nombre: cliente ? cliente.nombre : 'Cliente',
+                nit: venta.nit_cliente || 'N/A',
+                boleto: venta.id_boleto || ''
+            };
+        }
+    });
     
     updateSeats();
     updateSummary();
@@ -310,8 +327,14 @@ function toggleSeat(n) {
         return;
     }
     
+    // Si está ocupado, mostrar info del ocupante
     if (state.occupied.includes(n)) {
-        showAlert('error', 'Ocupado', `El asiento ${n} no está disponible`);
+        const info = state.occupiedInfo[n];
+        if (info) {
+            showOccupantInfo(n, info);
+        } else {
+            showAlert('error', 'Ocupado', `El asiento ${n} no está disponible`);
+        }
         return;
     }
     
@@ -326,6 +349,54 @@ function toggleSeat(n) {
     
     updateSeats();
     updateSummary();
+}
+
+// Mostrar información del ocupante del asiento
+function showOccupantInfo(asiento, info) {
+    // Crear modal de info
+    const existingModal = document.getElementById('occupantModal');
+    if (existingModal) existingModal.remove();
+    
+    const modal = document.createElement('div');
+    modal.id = 'occupantModal';
+    modal.className = 'occupant-modal';
+    modal.innerHTML = `
+        <div class="occupant-content">
+            <div class="occupant-header">
+                <span class="occupant-icon">💺</span>
+                <h3>Asiento ${asiento} - Ocupado</h3>
+            </div>
+            <div class="occupant-body">
+                <div class="occupant-row">
+                    <span class="occupant-label">👤 Pasajero:</span>
+                    <span class="occupant-value">${info.nombre}</span>
+                </div>
+                <div class="occupant-row">
+                    <span class="occupant-label">🪪 NIT/CI:</span>
+                    <span class="occupant-value">${info.nit}</span>
+                </div>
+                ${info.boleto ? `
+                <div class="occupant-row">
+                    <span class="occupant-label">🎫 Boleto:</span>
+                    <span class="occupant-value">${info.boleto}</span>
+                </div>
+                ` : ''}
+            </div>
+            <button class="occupant-close" onclick="closeOccupantModal()">Cerrar</button>
+        </div>
+    `;
+    
+    document.body.appendChild(modal);
+    
+    // Cerrar al hacer click fuera
+    modal.addEventListener('click', (e) => {
+        if (e.target === modal) closeOccupantModal();
+    });
+}
+
+function closeOccupantModal() {
+    const modal = document.getElementById('occupantModal');
+    if (modal) modal.remove();
 }
 
 function updateSelectedDisplay() {
@@ -564,6 +635,7 @@ function clearForm() {
     state.viaje = null;
     state.seats = [];
     state.occupied = [];
+    state.occupiedInfo = {};
     state.client = null;
     
     document.getElementById('nitInput').value = '';
